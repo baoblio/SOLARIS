@@ -1,8 +1,13 @@
-// components/Header.js
+// components/Header.tsx
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 
-export default function Header({ userName, onProfilePress }) {
+interface HeaderProps {
+    userName: string;
+    onProfilePress?: () => void;
+}
+
+export default function Header({ userName, onProfilePress }: HeaderProps) {
     return (
         <View style={styles.container}>
             <View>
@@ -14,10 +19,12 @@ export default function Header({ userName, onProfilePress }) {
                 style={styles.profileButton}
                 onPress={onProfilePress}
             >
-                {/* Profile icon/image */}
-                <View style={styles.profileCircle}>
-                    <Text style={styles.profileIcon}>👤</Text>
-                </View>
+
+                {/* Option 2: Use a local image (uncomment when you add your image) */}
+                <Image
+          source={require('../assets//images/profile-placeholder.png')}
+          style={styles.profileImage}
+        />
             </TouchableOpacity>
         </View>
     );
@@ -42,16 +49,12 @@ const styles = StyleSheet.create({
     profileButton: {
         width: 60,
         height: 60,
+        borderRadius: 30,
+        overflow: 'hidden',  // Important for circular image
     },
-    profileCircle: {
+    profileImage: {
         width: 60,
         height: 60,
         borderRadius: 30,
-        backgroundColor: '#5C1F1F',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    profileIcon: {
-        fontSize: 30,
     },
 });

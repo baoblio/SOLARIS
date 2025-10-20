@@ -1,5 +1,6 @@
 // lib/types.ts
 
+// lib/types.ts - ADD THIS INTERFACE
 export interface SystemStatus {
     connected: boolean;
     foyerLight: boolean;
@@ -10,21 +11,32 @@ export interface SystemStatus {
 
 export interface Capture {
     id: string;
-    timestamp: string;
-    thumbnail_url: string;
-    video_url: string;
+    file_name: string;
+    file_path: string;
+    file_size: number;
+    duration: number;
     detected_at: string;
+    timestamp: string;
     location?: string;
-    duration?: number;
+    thumbnail_data?: string;
+    viewed: boolean;
+    starred: boolean;
 }
 
 export type OperationMode = 'automatic' | 'manual' | 'scheduled';
 
-export interface Schedule {
-    startTime: Date;
-    endTime: Date;
-    daysOfWeek?: string[];
-    isActive?: boolean;
+// ADD THIS - matches your Supabase 'status' table structure
+export interface StatusRow {
+    id: number;
+    user_id?: string;
+    connection: boolean;
+    foyer: boolean;
+    porch: boolean;
+    mode_of_operation: string;
+    battery_percentage: number;
+    last_activation: string;
+    created_at: string;
+    updated_at: string;
 }
 
 export interface Light {
