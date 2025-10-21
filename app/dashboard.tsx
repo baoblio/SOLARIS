@@ -30,7 +30,9 @@ import { supabase } from '@/lib/supabase';
 import { checkPiConnection, getVideoStreamUrl } from '@/lib/piServer';
 import { SystemStatus, Capture, OperationMode, StatusRow } from '@/lib/types';
 
-// Helper function
+// ═══════════════════════════════════════════════════
+// HELPER FUNCTION (Outside component)
+// ═══════════════════════════════════════════════════
 const formatLastActivation = (timestamp: string): string => {
     if (!timestamp) return 'Never';
     const now = new Date();
@@ -44,6 +46,9 @@ const formatLastActivation = (timestamp: string): string => {
     return `${Math.floor(diffMins / 1440)} days ago`;
 };
 
+// ═══════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════
 export default function DashboardScreen() {
     // ─────────────────────────────────────────────────
     // STATE
@@ -122,7 +127,32 @@ export default function DashboardScreen() {
     };
 
     const loadSystemStatus = async () => {
+        console.log('🔍 ========== LOADING SYSTEM STATUS ==========');
+
         try {
+            // Test 1: Check if Supabase client is initialized
+            console.log('📡 Has auth?', !!supabase.auth);
+
+            // Test 2: Try a simple count first
+            const { count, error: countError } = await supabase
+                .from('status')
+                .select('*', { count: 'exact', head: true });
+
+            console.log('📊 Total rows in status table:', count);
+            console.log('📊 Count error:', countError);
+
+            // Test 3: Try getting data WITHOUT .single()
+            const { data: allData, error: allError } = await supabase
+                .from('status')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            console.log('📊 All data query:');
+            console.log('   - Rows returned:', allData?.length || 0);
+            console.log('   - Data:', JSON.stringify(allData, null, 2));
+            console.log('   - Error:', allError);
+
+            // Test 4: Original query with .single()
             const { data, error } = await supabase
                 .from('status')
                 .select('*')
@@ -130,10 +160,14 @@ export default function DashboardScreen() {
                 .limit(1)
                 .single();
 
-            // Gracefully handle the "0 rows" error
+            console.log('📊 Single query:');
+            console.log('   - Data:', JSON.stringify(data, null, 2));
+            console.log('   - Error:', error);
+            console.log('   - Error code:', error?.code);
+
+            // Handle PGRST116 (0 rows)
             if (error && error.code === 'PGRST116') {
-                console.warn('No status row found in the database. Using default state.');
-                // You can keep the default state or set it to an "offline" state
+                console.warn('⚠️ No status row found in the database. Using default state.');
                 setSystemStatus({
                     connected: false,
                     foyerLight: false,
@@ -142,16 +176,18 @@ export default function DashboardScreen() {
                     battery: 0,
                 });
                 setMode('automatic');
-                return; // Exit the function
+                return;
             }
 
-            // Handle other potential errors
+            // Handle other errors
             if (error) {
+                console.error('❌ Supabase error:', error);
                 throw error;
             }
 
             // If data exists, update the state
             if (data) {
+                console.log('✅ Successfully loaded status data!');
                 setSystemStatus({
                     connected: data.connection,
                     foyerLight: data.foyer,
@@ -161,8 +197,10 @@ export default function DashboardScreen() {
                 });
                 setMode(data.mode_of_operation as OperationMode);
             }
+
+            console.log('🔍 ========== END LOADING STATUS ==========');
         } catch (error) {
-            console.error('Error loading system status:', error);
+            console.error('💥 Exception in loadSystemStatus:', error);
             Alert.alert("Connection Error", "Could not load system status from the server.");
         }
     };
@@ -244,7 +282,6 @@ export default function DashboardScreen() {
             const videoUrl = getVideoStreamUrl(capture.file_name);
             const fileUri = (FileSystem as any).documentDirectory + capture.file_name;
 
-            // THIS IS THE FIX: use `any` for the callback parameter
             const callback = (downloadProgressData: any) => {
                 const progress = downloadProgressData.totalBytesWritten / downloadProgressData.totalBytesExpectedToWrite;
                 setDownloadProgress(prev => ({
@@ -265,7 +302,6 @@ export default function DashboardScreen() {
             console.error('Download error:', error);
             Alert.alert('Download Failed', 'Could not download video.');
         } finally {
-            // Clear progress
             setDownloadProgress(prev => {
                 const newProgress = { ...prev };
                 delete newProgress[captureId];
@@ -313,7 +349,9 @@ export default function DashboardScreen() {
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
-                <View style={styles.loadingContainer}><Text style={styles.loadingText}>Loading...</Text></View>
+                <View style={styles.loadingContainer}>
+                    <Text style={styles.loadingText}>Loading...</Text>
+                </View>
             </SafeAreaView>
         );
     }
@@ -322,19 +360,39 @@ export default function DashboardScreen() {
         <GestureHandlerRootView style={{ flex: 1 }}>
             <SafeAreaView style={styles.container}>
                 <StatusBar barStyle="dark-content" />
-                <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+                <ScrollView
+                    contentContainerStyle={styles.scrollContent}
+                    showsVerticalScrollIndicator={false}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+                >
                     <Header userName="User" onProfilePress={handleProfilePress} />
+
+                    {/* Pi Connection Status Indicator */}
                     <View style={styles.piStatus}>
                         <View style={[styles.statusDot, { backgroundColor: piConnected ? '#4CAF50' : '#F44336' }]} />
                         <Text style={styles.piStatusText}>Camera System: {piConnected ? 'Online' : 'Offline'}</Text>
                     </View>
+
                     <ModeSelector selectedMode={mode} onModeChange={handleModeChange} />
                     <StatusCard status={systemStatus} />
                     {renderModeContent()}
+
+                    {/* Spacer for bottom sheet */}
                     <View style={{ height: 250 }} />
                 </ScrollView>
-                <BottomSheet ref={bottomSheetRef} index={0} snapPoints={['15%', '50%', '90%']} enablePanDownToClose={false}>
-                    <RecentCaptures captures={captures} onDownload={handleDownload} onDelete={handleDelete} downloadProgress={downloadProgress} />
+
+                <BottomSheet
+                    ref={bottomSheetRef}
+                    index={0}
+                    snapPoints={['15%', '50%', '90%']}
+                    enablePanDownToClose={false}
+                >
+                    <RecentCaptures
+                        captures={captures}
+                        onDownload={handleDownload}
+                        onDelete={handleDelete}
+                        downloadProgress={downloadProgress}
+                    />
                 </BottomSheet>
             </SafeAreaView>
         </GestureHandlerRootView>
@@ -345,11 +403,38 @@ export default function DashboardScreen() {
 // STYLES
 // ═══════════════════════════════════════════════════
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F5F5F5' },
-    scrollContent: { padding: 16 },
-    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    loadingText: { fontSize: 18, color: '#666' },
-    piStatus: { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: '#FFF', borderRadius: 8, marginBottom: 16 },
-    statusDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
-    piStatusText: { fontSize: 14, color: '#666' },
+    container: {
+        flex: 1,
+        backgroundColor: '#F5F5F5'
+    },
+    scrollContent: {
+        padding: 16
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    loadingText: {
+        fontSize: 18,
+        color: '#666'
+    },
+    piStatus: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        backgroundColor: '#FFF',
+        borderRadius: 8,
+        marginBottom: 16
+    },
+    statusDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        marginRight: 8
+    },
+    piStatusText: {
+        fontSize: 14,
+        color: '#666'
+    },
 });

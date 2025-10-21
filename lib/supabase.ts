@@ -6,6 +6,8 @@ import * as FileSystem from 'expo-file-system';
 const SUPABASE_URL = 'https://qdpezamsvwxpvielmfcy.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFkcGV6YW1zdnd4cHZpZWxtZmN5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3MzM4MTIsImV4cCI6MjA3NTMwOTgxMn0.6DfWyqnCv8BGB-0VEdd2ENWB2rgu56GhbwjYiz_Wav8';
 
+console.log('🔧 Initializing Supabase with URL:', SUPABASE_URL);
+
 const ExpoFileSystemStorage = {
     getItem: async (key: string): Promise<string | null> => {
         try {
