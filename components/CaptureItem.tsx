@@ -1,4 +1,4 @@
-// components/CaptureItem.tsx - WITH PROGRESS BAR
+// components/CaptureItem.tsx - COMPLETE WITH ALL FEATURES
 import React, { useState } from 'react';
 import {
     View,
@@ -18,14 +18,14 @@ interface CaptureItemProps {
     capture: Capture;
     onDownload: () => void;
     onDelete: () => void;
-    downloadProgress?: number;  // ← NEW (0-100 or undefined)
+    downloadProgress?: number;  // 0-100 or undefined
 }
 
 export default function CaptureItem({
                                         capture,
                                         onDownload,
                                         onDelete,
-                                        downloadProgress,  // ← NEW
+                                        downloadProgress,
                                     }: CaptureItemProps) {
     const [showVideo, setShowVideo] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -70,7 +70,7 @@ export default function CaptureItem({
 
     return (
         <View style={styles.container}>
-            {/* Thumbnail */}
+            {/* Thumbnail with Play Button */}
             <TouchableOpacity onPress={handlePlay} style={styles.thumbnailContainer}>
                 <Image
                     source={{ uri: thumbnailUri }}
@@ -89,7 +89,7 @@ export default function CaptureItem({
                 )}
             </TouchableOpacity>
 
-            {/* Info */}
+            {/* Info Section */}
             <View style={styles.infoContainer}>
                 <Text style={styles.timestamp}>{capture.timestamp}</Text>
                 {capture.location && (
@@ -113,7 +113,7 @@ export default function CaptureItem({
                 </View>
             )}
 
-            {/* Buttons */}
+            {/* Action Buttons */}
             <View style={styles.buttonContainer}>
                 <TouchableOpacity
                     style={[styles.button, styles.playButtonStyle]}
@@ -158,6 +158,7 @@ export default function CaptureItem({
                 onRequestClose={() => setShowVideo(false)}
             >
                 <View style={styles.modalContainer}>
+                    {/* Modal Header with Close Button */}
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>{capture.location || 'Video'}</Text>
                         <TouchableOpacity
@@ -168,6 +169,7 @@ export default function CaptureItem({
                         </TouchableOpacity>
                     </View>
 
+                    {/* Loading Indicator */}
                     {loading && (
                         <View style={styles.loadingOverlay}>
                             <ActivityIndicator size="large" color="#FFF" />
@@ -175,6 +177,7 @@ export default function CaptureItem({
                         </View>
                     )}
 
+                    {/* Video Player */}
                     <Video
                         source={{ uri: getVideoStreamUrl(capture.file_name) }}
                         style={styles.video}
@@ -190,6 +193,7 @@ export default function CaptureItem({
                         }}
                     />
 
+                    {/* Video Info Footer */}
                     <View style={styles.videoInfo}>
                         <Text style={styles.videoInfoText}>{capture.timestamp}</Text>
                         <Text style={styles.videoInfoText}>

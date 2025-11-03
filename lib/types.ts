@@ -25,7 +25,6 @@ export interface Capture {
 
 export type OperationMode = 'automatic' | 'manual' | 'scheduled';
 
-// ADD THIS - matches your Supabase 'status' table structure
 export interface StatusRow {
     id: number;
     user_id?: string;
