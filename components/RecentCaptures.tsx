@@ -1,9 +1,9 @@
-// components/RecentCaptures.tsx - FIXED SCROLLING VERSION
+// components/RecentCaptures.tsx - FIXED VERSION
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { BottomSheetFlatList } from '@gorhom/bottom-sheet';
 import CaptureItem from './CaptureItem';
-import { Capture } from '@/lib/types';
+import { Capture } from '../lib/types';
 
 interface RecentCapturesProps {
     captures: Capture[];
@@ -18,49 +18,40 @@ export default function RecentCaptures({
                                            onDelete,
                                            downloadProgress,
                                        }: RecentCapturesProps) {
-    // @ts-ignore
-    // @ts-ignore
     return (
-        <View style={styles.container}>
-            {/* Header - FIXED POSITION */}
-            <View style={styles.header}>
-                <Text style={styles.title}>Recent Captures</Text>
-                <Text style={styles.count}>{captures.length} videos</Text>
-            </View>
-
-            {/* Scrollable List */}
-            <BottomSheetFlatList
-                data={captures}
-                keyExtractor={(item: { id: any; }) => item.id}
-                renderItem={({ item }) => (
-                    <CaptureItem
-                        capture={item}
-                        onDownload={() => onDownload(item.id)}
-                        onDelete={() => onDelete(item.id)}
-                        downloadProgress={downloadProgress[item.id]}
-                    />
-                )}
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={true}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyIcon}>📹</Text>
-                        <Text style={styles.emptyText}>No captures yet</Text>
-                        <Text style={styles.emptySubtext}>
-                            Motion detected videos will appear here
-                        </Text>
-                    </View>
-                }
-            />
-        </View>
+        <BottomSheetFlatList
+            data={captures}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+                <CaptureItem
+                    capture={item}
+                    onDownload={() => onDownload(item.id)}
+                    onDelete={() => onDelete(item.id)}
+                    downloadProgress={downloadProgress[item.id]}
+                />
+            )}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={true}
+            ListHeaderComponent={
+                <View style={styles.header}>
+                    <Text style={styles.title}>Recent Captures</Text>
+                    <Text style={styles.count}>{captures.length} videos</Text>
+                </View>
+            }
+            ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyIcon}>📹</Text>
+                    <Text style={styles.emptyText}>No captures yet</Text>
+                    <Text style={styles.emptySubtext}>
+                        Motion detected videos will appear here
+                    </Text>
+                </View>
+            }
+        />
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#F5F5F5',
-    },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -70,6 +61,7 @@ const styles = StyleSheet.create({
         borderBottomWidth: 2,
         borderBottomColor: '#000',
         backgroundColor: '#FFF',
+        marginBottom: 16,
     },
     title: {
         fontSize: 18,
@@ -82,8 +74,8 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     listContent: {
-        padding: 16,
-        paddingBottom: 40,  // Extra padding at bottom
+        paddingHorizontal: 16,
+        paddingBottom: 100,  // Extra padding for last item
     },
     emptyContainer: {
         alignItems: 'center',
