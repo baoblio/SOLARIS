@@ -1,6 +1,10 @@
 // components/Header.tsx
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+// Using a built-in icon for simplicity, e.g., from expo-symbols or vector-icons
+// For this example, I'll use a simple text-based button.
+// If you have @expo/vector-icons installed:
+// import { Ionicons } from '@expo/vector-icons';
 
 interface HeaderProps {
     userName: string;
@@ -15,17 +19,18 @@ export default function Header({ userName, onProfilePress }: HeaderProps) {
                 <Text style={styles.title}>Dashboard</Text>
             </View>
 
-            <TouchableOpacity
-                style={styles.profileButton}
-                onPress={onProfilePress}
-            >
-
-                {/* Option 2: Use a local image (uncomment when you add your image) */}
-                <Image
-          source={require('../assets//images/profile-placeholder.png')}
-          style={styles.profileImage}
-        />
-            </TouchableOpacity>
+            <View style={styles.rightContainer}>
+                {/* Profile/User Button */}
+                <TouchableOpacity
+                    style={styles.profileButton}
+                    onPress={onProfilePress}
+                >
+                    <Image
+                        source={require('../assets/images/profile-placeholder.png')}
+                        style={styles.profileImage}
+                    />
+                </TouchableOpacity>
+            </View>
         </View>
     );
 }
@@ -37,6 +42,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 20,
     },
+    rightContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
     greeting: {
         fontSize: 16,
         color: '#666',
@@ -47,14 +56,16 @@ const styles = StyleSheet.create({
         color: '#000',
     },
     profileButton: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
-        overflow: 'hidden',  // Important for circular image
+        width: 50,
+        height: 50,
+        borderRadius: 25,
+        overflow: 'hidden',
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#E0E0E0',
     },
     profileImage: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
+        width: '100%',
+        height: '100%',
     },
 });
