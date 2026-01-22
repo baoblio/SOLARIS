@@ -1,4 +1,4 @@
-// components/CaptureItem.tsx - (COMPLETE WITH FIXED CLEANUP)
+// components/CaptureItem.tsx
 import React, { useState, useEffect } from 'react';
 import {
     View,
@@ -15,6 +15,8 @@ import {
     useVideoPlayer,
     VideoSource,
 } from 'expo-video';
+import * as VideoThumbnails from 'expo-video-thumbnails';
+
 import { Capture } from '@/lib/types';
 import { getVideoStreamUrl } from '@/lib/piServer';
 
@@ -38,22 +40,14 @@ const VideoPlayerComponent = ({
 
     useEffect(() => {
         if (!player) return;
-
-        // Set initial loading state
         onLoadingChange(true);
 
         try {
-            // Subscribe to playing changes
             const playingSubscription = player.addListener('playingChange', (payload) => {
-                if (payload.isPlaying) {
-                    onLoadingChange(false);
-                }
+                if (payload.isPlaying) onLoadingChange(false);
             });
 
-            // Subscribe to status changes (this handles errors)
             const statusSubscription = player.addListener('statusChange', (payload) => {
-                console.log('Status changed:', payload);
-
                 if (payload.status === 'error' && payload.error) {
                     onLoadingChange(false);
                     onError(payload.error);
@@ -64,19 +58,12 @@ const VideoPlayerComponent = ({
                 }
             });
 
-            // Cleanup
             return () => {
                 try {
-                    // Remove listeners first
                     playingSubscription?.remove();
                     statusSubscription?.remove();
-
-                    // Then try to pause (wrapped in try-catch in case player is already released)
-                    if (player) {
-                        player.pause();
-                    }
+                    if (player) player.pause();
                 } catch (error) {
-                    // Ignore errors during cleanup - player might already be released
                     console.log('Video cleanup (safe to ignore):', error);
                 }
             };
@@ -97,9 +84,7 @@ const VideoPlayerComponent = ({
     );
 };
 
-// ----------------------------------------------------------------
 // Main CaptureItem Component
-// ----------------------------------------------------------------
 interface CaptureItemProps {
     capture: Capture;
     piUrl: string;
@@ -119,6 +104,38 @@ export default function CaptureItem({
     const [loading, setLoading] = useState(false);
     const [videoError, setVideoError] = useState<string | null>(null);
 
+    // NEW: Generate thumbnail
+    const [generatedThumbnail, setGeneratedThumbnail] = useState<string | null>(null);
+    useEffect(() => {
+        // If we already have a backend thumbnail, don't waste resources generating one
+        if (capture.thumbnail_data) return;
+
+        let isMounted = true;
+
+        const generateThumbnail = async () => {
+            try {
+                const videoUrl = getVideoStreamUrl(piUrl, capture.file_name);
+
+                // Generate thumbnail at the 1-second mark (1000ms)
+                const { uri } = await VideoThumbnails.getThumbnailAsync(videoUrl, {
+                    time: 1000,
+                });
+
+                if (isMounted) {
+                    setGeneratedThumbnail(uri);
+                }
+            } catch (e) {
+                console.warn("Failed to generate video thumbnail", e);
+            }
+        };
+
+        generateThumbnail();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [capture.thumbnail_data, capture.file_name, piUrl]);
+
     const handlePlay = () => {
         setVideoError(null);
         setShowVideo(true);
@@ -131,41 +148,36 @@ export default function CaptureItem({
     };
 
     const handleDownload = () => {
-        Alert.alert(
-            'Download Video',
-            'Download this video to your device?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Download', onPress: onDownload },
-            ]
-        );
+        Alert.alert('Download Video', 'Download this video to your device?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Download', onPress: onDownload },
+        ]);
     };
 
     const handleDelete = () => {
-        Alert.alert(
-            'Delete Video',
-            'Are you sure you want to delete this capture? This cannot be undone.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Delete', onPress: onDelete, style: 'destructive' },
-            ]
-        );
+        Alert.alert('Delete Video', 'Are you sure? This cannot be undone.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', onPress: onDelete, style: 'destructive' },
+        ]);
     };
 
     const handleVideoError = (error: any) => {
         console.error('Video error:', error);
         setLoading(false);
         setVideoError('Failed to load video');
-        Alert.alert(
-            'Video Error',
-            'Failed to load video. Please check your connection and try again.',
-            [{ text: 'OK', onPress: handleCloseVideo }]
-        );
+        Alert.alert('Video Error', 'Failed to load video.', [{ text: 'OK', onPress: handleCloseVideo }]);
     };
 
-    const thumbnailUri = capture.thumbnail_data
-        ? `data:image/jpeg;base64,${capture.thumbnail_data}`
-        : 'https://via.placeholder.com/300x200/CCCCCC/666666?text=No+Thumbnail';
+    // Priority: 1. Backend Base64 -> 2. Generated Local File -> 3. Placeholder
+    const getThumbnailSource = () => {
+        if (capture.thumbnail_data) {
+            return { uri: `data:image/jpeg;base64,${capture.thumbnail_data}` };
+        }
+        if (generatedThumbnail) {
+            return { uri: generatedThumbnail };
+        }
+        return { uri: 'https://via.placeholder.com/300x200/CCCCCC/666666?text=Loading...' };
+    };
 
     const formatFileSize = (bytes: number): string => {
         if (bytes < 1024) return `${bytes} B`;
@@ -180,7 +192,7 @@ export default function CaptureItem({
             {/* Thumbnail with Play Button */}
             <TouchableOpacity onPress={handlePlay} style={styles.thumbnailContainer}>
                 <Image
-                    source={{ uri: thumbnailUri }}
+                    source={getThumbnailSource()}
                     style={styles.thumbnail}
                     resizeMode="cover"
                 />
@@ -209,16 +221,9 @@ export default function CaptureItem({
             {isDownloading && (
                 <View style={styles.progressContainer}>
                     <View style={styles.progressBar}>
-                        <View
-                            style={[
-                                styles.progressFill,
-                                { width: `${downloadProgress}%` },
-                            ]}
-                        />
+                        <View style={[styles.progressFill, { width: `${downloadProgress}%` }]} />
                     </View>
-                    <Text style={styles.progressText}>
-                        Downloading... {downloadProgress}%
-                    </Text>
+                    <Text style={styles.progressText}>Downloading... {downloadProgress}%</Text>
                 </View>
             )}
 
@@ -232,24 +237,14 @@ export default function CaptureItem({
                     <Text style={styles.buttonText}>Play</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[
-                        styles.button,
-                        styles.downloadButton,
-                        isDownloading && styles.buttonDisabled,
-                    ]}
+                    style={[styles.button, styles.downloadButton, isDownloading && styles.buttonDisabled]}
                     onPress={handleDownload}
                     disabled={isDownloading}
                 >
-                    <Text style={styles.buttonText}>
-                        {isDownloading ? '⏳' : ''} Download
-                    </Text>
+                    <Text style={styles.buttonText}>{isDownloading ? '⏳' : ''} Download</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                    style={[
-                        styles.button,
-                        styles.deleteButton,
-                        isDownloading && styles.buttonDisabled,
-                    ]}
+                    style={[styles.button, styles.deleteButton, isDownloading && styles.buttonDisabled]}
                     onPress={handleDelete}
                     disabled={isDownloading}
                 >
@@ -265,18 +260,13 @@ export default function CaptureItem({
                 onRequestClose={handleCloseVideo}
             >
                 <View style={styles.modalContainer}>
-                    {/* Modal Header with Close Button */}
                     <View style={styles.modalHeader}>
                         <Text style={styles.modalTitle}>{capture.location || 'Video'}</Text>
-                        <TouchableOpacity
-                            style={styles.closeButton}
-                            onPress={handleCloseVideo}
-                        >
+                        <TouchableOpacity style={styles.closeButton} onPress={handleCloseVideo}>
                             <Text style={styles.closeText}>✕</Text>
                         </TouchableOpacity>
                     </View>
 
-                    {/* Loading Indicator */}
                     {loading && !videoError && (
                         <View style={styles.loadingOverlay}>
                             <ActivityIndicator size="large" color="#FFF" />
@@ -284,14 +274,12 @@ export default function CaptureItem({
                         </View>
                     )}
 
-                    {/* Error Message */}
                     {videoError && (
                         <View style={styles.errorOverlay}>
                             <Text style={styles.errorText}>⚠️ {videoError}</Text>
                         </View>
                     )}
 
-                    {/* Video Player */}
                     {showVideo && !videoError && (
                         <VideoPlayerComponent
                             videoUri={getVideoStreamUrl(piUrl, capture.file_name)}
@@ -300,12 +288,9 @@ export default function CaptureItem({
                         />
                     )}
 
-                    {/* Video Info Footer */}
                     <View style={styles.videoInfo}>
                         <Text style={styles.videoInfoText}>{capture.timestamp}</Text>
-                        <Text style={styles.videoInfoText}>
-                            {formatFileSize(capture.file_size)}
-                        </Text>
+                        <Text style={styles.videoInfoText}>{formatFileSize(capture.file_size)}</Text>
                     </View>
                 </View>
             </Modal>
@@ -335,11 +320,11 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         overflow: 'hidden',
         marginBottom: 12,
+        backgroundColor: '#f0f0f0',
     },
     thumbnail: {
         width: '100%',
         height: '100%',
-        backgroundColor: '#E0E0E0',
     },
     playOverlay: {
         position: 'absolute',
