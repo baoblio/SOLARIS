@@ -1,4 +1,4 @@
-// app/(app)/dashboard.tsx - (COMPLETE WITH FILE SYSTEM FIX)
+// app/(app)/dashboard.tsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     View,
@@ -11,7 +11,6 @@ import {
     AppState,
     AppStateStatus,
     TouchableOpacity,
-    TextInput,
     Modal,
     ActivityIndicator,
 } from 'react-native';
@@ -20,7 +19,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import BottomSheet from '@gorhom/bottom-sheet';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
-
 // Import components
 import Header from '../../components/Header';
 import ModeSelector from '../../components/ModeSelector';
@@ -28,7 +26,7 @@ import StatusCard from '../../components/StatusCard';
 import ManualControls from '../../components/ManualControls';
 import ScheduleControls from '../../components/ScheduleControls';
 import RecentCaptures from '../../components/RecentCaptures';
-
+import {PiSetupFlow} from '@/components/PiSetupFlow';
 // Import lib
 import { supabase } from '@/lib/supabase';
 import {
@@ -49,12 +47,6 @@ interface SolarisDevice {
     pi_url: string;
 }
 
-interface AddDeviceModalProps {
-    visible: boolean;
-    onClose: () => void;
-    onDeviceClaimed: () => void;
-}
-
 // ═══════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════
@@ -64,130 +56,10 @@ const formatLastActivation = (timestamp: string): string => {
     const then = new Date(timestamp);
     const diffMs = now.getTime() - then.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins} min ago`;
     if (diffMins < 1440) return `${Math.floor(diffMins / 60)} hours ago`;
     return `${Math.floor(diffMins / 1440)} days ago`;
-};
-
-// ═══════════════════════════════════════════════════
-// ADD DEVICE MODAL COMPONENT
-// ═══════════════════════════════════════════════════
-const AddDeviceModal: React.FC<AddDeviceModalProps> = ({
-                                                           visible,
-                                                           onClose,
-                                                           onDeviceClaimed,
-                                                       }) => {
-    const [piId, setPiId] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-
-    // Reset state when modal closes
-    useEffect(() => {
-        if (!visible) {
-            setPiId('');
-            setError('');
-        }
-    }, [visible]);
-
-    const handleClaim = async () => {
-        if (!piId.trim()) {
-            setError('Please enter a Pi ID');
-            return;
-        }
-
-        if (loading) return;
-
-        setLoading(true);
-        setError('');
-
-        try {
-            const { data, error: rpcError } = await supabase.rpc('claim_device', {
-                pi_id_to_claim: piId.trim(),
-            });
-
-            if (rpcError) {
-                console.error('Claim RPC error:', rpcError);
-                setError(rpcError.message || 'Failed to claim device');
-                return;
-            }
-
-            if (data && typeof data === 'string' && data.startsWith('Error:')) {
-                console.warn('Claim logic error:', data);
-                setError(data.replace('Error: ', ''));
-                return;
-            }
-
-            // Success!
-            Alert.alert('Success', 'Device claimed successfully!');
-            setPiId('');
-            onDeviceClaimed();
-            onClose();
-        } catch (err: any) {
-            console.error('Exception claiming device:', err);
-            setError(err.message || 'An unexpected error occurred');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    return (
-        <Modal
-            visible={visible}
-            transparent
-            animationType="fade"
-            onRequestClose={onClose}
-        >
-            <View style={styles.modalBackdrop}>
-                <View style={styles.modalContainer}>
-                    <Text style={styles.modalTitle}>Add Your Device</Text>
-                    <Text style={styles.modalSubtitle}>
-                        Enter the unique Pi ID for your Solaris device. This is often found
-                        on a sticker or in the device's setup instructions.
-                    </Text>
-
-                    <TextInput
-                        style={styles.modalInput}
-                        placeholder="solaris-pi-001"
-                        placeholderTextColor="#999"
-                        value={piId}
-                        onChangeText={(text) => {
-                            setPiId(text);
-                            if (error) setError(''); // Clear error when typing
-                        }}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        editable={!loading}
-                    />
-
-                    {error ? <Text style={styles.modalError}>{error}</Text> : null}
-
-                    <TouchableOpacity
-                        style={[styles.modalButton, loading && styles.modalButtonDisabled]}
-                        onPress={handleClaim}
-                        disabled={loading}
-                    >
-                        {loading ? (
-                            <ActivityIndicator color="#FFF" />
-                        ) : (
-                            <Text style={styles.modalButtonText}>Claim Device</Text>
-                        )}
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                        style={styles.modalCloseButton}
-                        onPress={onClose}
-                        disabled={loading}
-                    >
-                        <Text style={[styles.modalCloseText, loading && styles.modalCloseTextDisabled]}>
-                            Cancel
-                        </Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-        </Modal>
-    );
 };
 
 // ═══════════════════════════════════════════════════
@@ -198,7 +70,6 @@ export default function DashboardScreen() {
     // STATE & CONTEXT
     // ─────────────────────────────────────────────────
     const { session, signOut } = useAuth();
-
     const [currentDevice, setCurrentDevice] = useState<SolarisDevice | null>(null);
     const [mode, setMode] = useState<OperationMode>('automatic');
     const [systemStatus, setSystemStatus] = useState<SystemStatus>({
@@ -214,32 +85,10 @@ export default function DashboardScreen() {
     const [piConnected, setPiConnected] = useState(false);
     const [isActive, setIsActive] = useState(true);
     const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
-    const [showAddDeviceModal, setShowAddDeviceModal] = useState(false);
-
+    const [showSetupFlow, setShowSetupFlow] = useState(false);
     const bottomSheetRef = useRef<BottomSheet>(null);
     const statusIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const captureIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    // ─────────────────────────────────────────────────
-    // DEBUG EFFECT
-    // ─────────────────────────────────────────────────
-    useEffect(() => {
-        const debugFileSystem = async () => {
-            console.log('=== FileSystem Debug ===');
-
-            // Try to access via require
-            try {
-                const fs = require('expo-file-system');
-                console.log('expo-file-system keys:', Object.keys(fs));
-                console.log('documentDirectory via require:', fs.documentDirectory);
-                console.log('cacheDirectory via require:', fs.cacheDirectory);
-            } catch (e) {
-                console.log('Could not require expo-file-system:', e);
-            }
-        };
-
-        debugFileSystem();
-    }, []);
 
     // ─────────────────────────────────────────────────
     // DATA LOADING FUNCTIONS
@@ -341,16 +190,13 @@ export default function DashboardScreen() {
     const checkPi = useCallback(async (piUrl?: string) => {
         const url = piUrl || currentDevice?.pi_url;
         if (!url) return;
-
         const isConnected = await checkPiConnection(url);
         setPiConnected(isConnected);
     }, [currentDevice?.pi_url]);
 
     const loadDeviceAndData = useCallback(async () => {
         setLoading(true);
-
         const device = await loadDevice();
-
         if (device) {
             await Promise.all([
                 loadSystemStatus(device.id),
@@ -358,14 +204,12 @@ export default function DashboardScreen() {
                 checkPi(device.pi_url),
             ]);
         }
-
         setLoading(false);
     }, [loadSystemStatus, loadCaptures, checkPi]);
 
     // ─────────────────────────────────────────────────
     // EFFECTS
     // ─────────────────────────────────────────────────
-
     // Initial load
     useEffect(() => {
         loadDeviceAndData();
@@ -421,15 +265,11 @@ export default function DashboardScreen() {
     // ─────────────────────────────────────────────────
     // EVENT HANDLERS
     // ─────────────────────────────────────────────────
-
     const handleModeChange = async (newMode: OperationMode) => {
         if (!currentDevice) return;
-
         const previousMode = mode;
-
         try {
             setMode(newMode); // Optimistic update
-
             const { error } = await supabase
                 .from('status')
                 .update({ mode_of_operation: newMode })
@@ -459,7 +299,6 @@ export default function DashboardScreen() {
         }));
 
         const success = await sendLightToggle(currentDevice.pi_url, light, value);
-
         if (!success) {
             Alert.alert('Error', 'Failed to toggle light. Device may be offline.');
             // Revert optimistic update
@@ -490,7 +329,6 @@ export default function DashboardScreen() {
             }
 
             setDownloadProgress((prev) => ({ ...prev, [captureId]: 0 }));
-
             const videoUrl = getVideoStreamUrl(currentDevice.pi_url, capture.file_name);
 
             // Try to get cache directory
@@ -526,13 +364,11 @@ export default function DashboardScreen() {
             );
 
             const result = await downloadResumable.downloadAsync();
-
             if (!result || !result.uri) {
                 throw new Error('Download failed');
             }
 
             const asset = await MediaLibrary.createAssetAsync(result.uri);
-
             try {
                 const album = await MediaLibrary.getAlbumAsync('Solaris');
                 if (album) {
@@ -610,7 +446,6 @@ export default function DashboardScreen() {
     // ─────────────────────────────────────────────────
     // RENDER HELPERS
     // ─────────────────────────────────────────────────
-
     const renderModeContent = () => {
         switch (mode) {
             case 'manual':
@@ -632,7 +467,6 @@ export default function DashboardScreen() {
     // ─────────────────────────────────────────────────
     // RENDER
     // ─────────────────────────────────────────────────
-
     if (loading) {
         return (
             <SafeAreaView style={styles.container}>
@@ -651,13 +485,13 @@ export default function DashboardScreen() {
                 <View style={styles.loadingContainer}>
                     <Text style={styles.noDeviceTitle}>No Device Connected</Text>
                     <Text style={styles.noDeviceSubtitle}>
-                        Please add your SOLARIS device to get started.
+                        Please set up your SOLARIS device to get started.
                     </Text>
                     <TouchableOpacity
-                        style={styles.addDeviceButton}
-                        onPress={() => setShowAddDeviceModal(true)}
+                        style={styles.setupButton}
+                        onPress={() => setShowSetupFlow(true)}
                     >
-                        <Text style={styles.addDeviceButtonText}>+ Add Device</Text>
+                        <Text style={styles.setupButtonText}>+ Setup Device</Text>
                     </TouchableOpacity>
 
                     {/* Logout Button */}
@@ -669,11 +503,28 @@ export default function DashboardScreen() {
                     </TouchableOpacity>
                 </View>
 
-                <AddDeviceModal
-                    visible={showAddDeviceModal}
-                    onClose={() => setShowAddDeviceModal(false)}
-                    onDeviceClaimed={loadDeviceAndData}
-                />
+                {/* Setup Flow Modal */}
+                <Modal
+                    visible={showSetupFlow}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setShowSetupFlow(false)}
+                >
+                    <SafeAreaView style={styles.setupModalContainer}>
+                        <View style={styles.setupModalHeader}>
+                            <TouchableOpacity onPress={() => setShowSetupFlow(false)}>
+                                <Text style={styles.setupModalCloseButton}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <PiSetupFlow
+                            userId={session?.user?.id || ''}
+                            onSetupComplete={() => {
+                                setShowSetupFlow(false);
+                                loadDeviceAndData();
+                            }}
+                        />
+                    </SafeAreaView>
+                </Modal>
             </SafeAreaView>
         );
     }
@@ -683,7 +534,6 @@ export default function DashboardScreen() {
         <GestureHandlerRootView style={{ flex: 1 }}>
             <SafeAreaView style={styles.container} edges={['top']}>
                 <StatusBar barStyle="dark-content" />
-
                 <ScrollView
                     contentContainerStyle={styles.scrollContent}
                     showsVerticalScrollIndicator={false}
@@ -731,12 +581,6 @@ export default function DashboardScreen() {
                     />
                 </BottomSheet>
             </SafeAreaView>
-
-            <AddDeviceModal
-                visible={showAddDeviceModal}
-                onClose={() => setShowAddDeviceModal(false)}
-                onDeviceClaimed={loadDeviceAndData}
-            />
         </GestureHandlerRootView>
     );
 }
@@ -777,18 +621,36 @@ const styles = StyleSheet.create({
         marginBottom: 30,
         paddingHorizontal: 20,
     },
-    addDeviceButton: {
+    setupButton: {
         backgroundColor: '#007AFF',
         paddingHorizontal: 32,
         paddingVertical: 16,
         borderRadius: 12,
         minWidth: 200,
+        marginBottom: 20,
     },
-    addDeviceButtonText: {
+    setupButtonText: {
         color: '#FFF',
         fontSize: 18,
         fontWeight: '600',
         textAlign: 'center',
+    },
+    setupModalContainer: {
+        flex: 1,
+        backgroundColor: '#F5F5F5',
+    },
+    setupModalHeader: {
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#E0E0E0',
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+    },
+    setupModalCloseButton: {
+        fontSize: 28,
+        color: '#007AFF',
+        fontWeight: '300',
     },
     piStatus: {
         flexDirection: 'row',
@@ -817,82 +679,6 @@ const styles = StyleSheet.create({
     bottomSheetIndicator: {
         backgroundColor: '#CCC',
         width: 40,
-    },
-
-    // Modal Styles
-    modalBackdrop: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 20,
-    },
-    modalContainer: {
-        width: '100%',
-        maxWidth: 400,
-        backgroundColor: '#FFF',
-        borderRadius: 16,
-        padding: 24,
-        alignItems: 'center',
-    },
-    modalTitle: {
-        fontSize: 22,
-        fontWeight: 'bold',
-        color: '#000',
-        marginBottom: 10,
-    },
-    modalSubtitle: {
-        fontSize: 15,
-        color: '#666',
-        textAlign: 'center',
-        marginBottom: 20,
-        lineHeight: 22,
-    },
-    modalInput: {
-        width: '100%',
-        height: 50,
-        backgroundColor: '#F0F0F0',
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        fontSize: 16,
-        color: '#000',
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: '#E0E0E0',
-        textAlign: 'center',
-    },
-    modalError: {
-        color: '#D32F2F',
-        marginBottom: 10,
-        textAlign: 'center',
-        fontSize: 14,
-    },
-    modalButton: {
-        width: '100%',
-        height: 50,
-        backgroundColor: '#007AFF',
-        borderRadius: 12,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    modalButtonDisabled: {
-        backgroundColor: '#BDBDBD',
-    },
-    modalButtonText: {
-        color: '#FFF',
-        fontSize: 18,
-        fontWeight: '600',
-    },
-    modalCloseButton: {
-        marginTop: 12,
-        paddingVertical: 8,
-    },
-    modalCloseText: {
-        color: '#007AFF',
-        fontSize: 16,
-    },
-    modalCloseTextDisabled: {
-        color: '#999',
     },
     logoutButton: {
         marginTop: 20,

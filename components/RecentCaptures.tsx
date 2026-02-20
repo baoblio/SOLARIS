@@ -22,6 +22,7 @@ export default function RecentCaptures({
                                        }: RecentCapturesProps) {
     // @ts-ignore
     // @ts-ignore
+    // @ts-ignore
     return (
         <View style={styles.container}>
             {/* Header - FIXED POSITION */}
