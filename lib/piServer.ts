@@ -4,7 +4,7 @@
 // This is now a DUMMY URL. The real one will be loaded from the 'devices' table.
 import {Alert} from "react-native";
 
-export const PI_SERVER_URL_PLACEHOLDER = 'https://demo-device-001.solaris-lights.online';
+export const PI_SERVER_URL_PLACEHOLDER = 'https://solaris-device-001.solaris-lights.online';
 
 /**
  * Get the full streaming URL for a video file
@@ -64,33 +64,66 @@ export const checkPiConnection = async (piUrl: string | undefined): Promise<bool
  * @param value - The new state (true for ON, false for OFF)
  * @returns Promise<boolean> - true if successful
  */
-export const sendLightToggle = async (
-    piUrl: string | undefined,
-    light: 'foyer' | 'porch',
-    value: boolean
-): Promise<boolean> => {
-    if (!piUrl) {
-        Alert.alert('Error', 'Device URL not found.');
-        return false;
-    }
+
+export const getPiStatus = async (baseUrl: string) => {
+    const url = `${baseUrl.replace(/\/$/, '')}/api/status`;
+
     try {
-        const response = await fetch(`${piUrl}/control`, {
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        return await res.json();
+    } catch {
+        return null;
+    }
+};
+
+export const sendModeChange = async (
+    baseUrl: string,
+    mode: 'automatic' | 'scheduled' | 'manual'
+): Promise<boolean> => {
+    const url = `${baseUrl.replace(/\/$/, '')}/api/mode`;
+
+    try {
+        const res = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ light, value }),
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ mode }),
         });
 
-        if (response.ok) {
-            console.log(`✅ ${light} light set to:`, value);
-            return true;
-        } else {
-            console.error('Error toggling light (server error):', response.status);
+        if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            console.warn('Mode change failed:', res.status, errText);
             return false;
         }
-    } catch (error: any) {
-        console.error('Error toggling light (network error):', error.message);
+
+        const data = await res.json().catch(() => null);
+        return !!data?.ok;
+    } catch (e: any) {
+        console.warn('Mode change exception:', e?.message ?? e);
+        return false;
+    }
+};
+
+export const sendLightToggle = async (
+    baseUrl: string,
+    light: 'porch' | 'foyer',
+    value: boolean
+): Promise<boolean> => {
+    const url = `${baseUrl.replace(/\/$/, '')}/api/manual`;
+
+    try {
+        const body = light === 'porch' ? { porch: value } : { foyer: value };
+
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+        if (!res.ok) return false;
+        const data = await res.json().catch(() => null);
+        return !!data?.ok;
+    } catch {
         return false;
     }
 };

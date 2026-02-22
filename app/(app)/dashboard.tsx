@@ -33,6 +33,7 @@ import {
     checkPiConnection,
     getVideoStreamUrl,
     sendLightToggle,
+    sendModeChange,
 } from '@/lib/piServer';
 import { SystemStatus, Capture, OperationMode } from '@/lib/types';
 import { useAuth } from '@/_context/AuthContext';
@@ -50,6 +51,38 @@ interface SolarisDevice {
 // ═══════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════
+
+const postModeChange = async (baseUrl: string, newMode: OperationMode) => {
+    // Example endpoint: http://<pi>:5000/api/mode
+    const url = `${baseUrl.replace(/\/$/, '')}/api/`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+            },
+            body: JSON.stringify({ mode: newMode }),
+            signal: controller.signal,
+        });
+
+        if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            throw new Error(`POST ${url} failed: ${res.status} ${text}`);
+        }
+
+        // If your server returns JSON, you can parse it:
+        // const data = await res.json();
+        return true;
+    } finally {
+        clearTimeout(timeout);
+    }
+};
+
 const formatLastActivation = (timestamp: string): string => {
     if (!timestamp) return 'Never';
     const now = new Date();
@@ -144,7 +177,6 @@ export default function DashboardScreen() {
                     lastActivated: formatLastActivation(statusData.last_activation),
                     battery: statusData.battery_percentage || 0,
                 });
-                setMode(statusData.mode_of_operation as OperationMode);
             }
         } catch (error) {
             console.error('Error loading system status:', error);
@@ -267,22 +299,24 @@ export default function DashboardScreen() {
     // ─────────────────────────────────────────────────
     const handleModeChange = async (newMode: OperationMode) => {
         if (!currentDevice) return;
+
         const previousMode = mode;
+        setMode(newMode);
+
         try {
-            setMode(newMode); // Optimistic update
+            const ok = await sendModeChange(currentDevice.pi_url, newMode);
+            if (!ok) throw new Error('Pi rejected mode change');
+
             const { error } = await supabase
                 .from('status')
                 .update({ mode_of_operation: newMode })
                 .eq('device_id', currentDevice.id);
 
-            if (error) {
-                console.error('Error updating mode:', error);
-                Alert.alert('Error', 'Failed to change mode');
-                setMode(previousMode); // Revert
-            }
-        } catch (error) {
-            console.error('Exception in handleModeChange:', error);
-            setMode(previousMode); // Revert
+            if (error) throw error;
+        } catch (err: any) {
+            console.error(err);
+            setMode(previousMode);
+            Alert.alert('Error', err?.message || 'Failed to change mode');
         }
     };
 
