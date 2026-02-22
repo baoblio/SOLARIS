@@ -19,6 +19,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import BottomSheet from '@gorhom/bottom-sheet';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
+
 // Import components
 import Header from '../../components/Header';
 import ModeSelector from '../../components/ModeSelector';
@@ -26,7 +27,8 @@ import StatusCard from '../../components/StatusCard';
 import ManualControls from '../../components/ManualControls';
 import ScheduleControls from '../../components/ScheduleControls';
 import RecentCaptures from '../../components/RecentCaptures';
-import {PiSetupFlow} from '@/components/PiSetupFlow';
+import { PiSetupFlow } from '@/components/PiSetupFlow';
+
 // Import lib
 import { supabase } from '@/lib/supabase';
 import {
@@ -34,6 +36,7 @@ import {
     getVideoStreamUrl,
     sendLightToggle,
     sendModeChange,
+    getPiStatus, // ✅ pull status from Pi server
 } from '@/lib/piServer';
 import { SystemStatus, Capture, OperationMode } from '@/lib/types';
 import { useAuth } from '@/_context/AuthContext';
@@ -51,37 +54,6 @@ interface SolarisDevice {
 // ═══════════════════════════════════════════════════
 // HELPER FUNCTIONS
 // ═══════════════════════════════════════════════════
-
-const postModeChange = async (baseUrl: string, newMode: OperationMode) => {
-    // Example endpoint: http://<pi>:5000/api/mode
-    const url = `${baseUrl.replace(/\/$/, '')}/api/`;
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-
-    try {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-            },
-            body: JSON.stringify({ mode: newMode }),
-            signal: controller.signal,
-        });
-
-        if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            throw new Error(`POST ${url} failed: ${res.status} ${text}`);
-        }
-
-        // If your server returns JSON, you can parse it:
-        // const data = await res.json();
-        return true;
-    } finally {
-        clearTimeout(timeout);
-    }
-};
 
 const formatLastActivation = (timestamp: string): string => {
     if (!timestamp) return 'Never';
@@ -104,7 +76,10 @@ export default function DashboardScreen() {
     // ─────────────────────────────────────────────────
     const { session, signOut } = useAuth();
     const [currentDevice, setCurrentDevice] = useState<SolarisDevice | null>(null);
+
+    // ✅ Mode is now sourced from Pi status (and user actions), not Supabase "status" table
     const [mode, setMode] = useState<OperationMode>('automatic');
+
     const [systemStatus, setSystemStatus] = useState<SystemStatus>({
         connected: false,
         foyerLight: false,
@@ -112,6 +87,7 @@ export default function DashboardScreen() {
         lastActivated: 'Never',
         battery: 0,
     });
+
     const [captures, setCaptures] = useState<Capture[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -119,6 +95,7 @@ export default function DashboardScreen() {
     const [isActive, setIsActive] = useState(true);
     const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
     const [showSetupFlow, setShowSetupFlow] = useState(false);
+
     const bottomSheetRef = useRef<BottomSheet>(null);
     const statusIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const captureIntervalRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -128,11 +105,7 @@ export default function DashboardScreen() {
     // ─────────────────────────────────────────────────
     const loadDevice = async (): Promise<SolarisDevice | null> => {
         try {
-            const { data, error } = await supabase
-                .from('devices')
-                .select('*')
-                .limit(1)
-                .maybeSingle();
+            const { data, error } = await supabase.from('devices').select('*').limit(1).maybeSingle();
 
             if (error) {
                 console.error('Error loading device:', error);
@@ -155,85 +128,101 @@ export default function DashboardScreen() {
         }
     };
 
-    const loadSystemStatus = useCallback(async (deviceId?: string) => {
-        const id = deviceId || currentDevice?.id;
-        if (!id) return;
-
-        try {
-            const { data: statusData, error: statusError } = await supabase
-                .from('status')
-                .select('*')
-                .eq('device_id', id)
-                .limit(1)
-                .maybeSingle();
-
-            if (statusError) throw statusError;
-
-            if (statusData) {
-                setSystemStatus({
-                    connected: piConnected,
-                    foyerLight: statusData.foyer,
-                    porchLight: statusData.porch,
-                    lastActivated: formatLastActivation(statusData.last_activation),
-                    battery: statusData.battery_percentage || 0,
-                });
-            }
-        } catch (error) {
-            console.error('Error loading system status:', error);
-        }
-    }, [currentDevice?.id, piConnected]);
-
-    const loadCaptures = useCallback(async (deviceId?: string) => {
-        const id = deviceId || currentDevice?.id;
-        if (!id) return;
-
-        try {
-            const { data, error } = await supabase
-                .from('motion_events')
-                .select('*')
-                .eq('device_id', id)
-                .order('detected_at', { ascending: false })
-                .limit(20);
-
-            if (error) throw error;
-
-            if (data) {
-                setCaptures(
-                    data.map((event) => ({
-                        id: event.id,
-                        file_name: event.file_name,
-                        file_path: event.file_path,
-                        file_size: event.file_size || 0,
-                        duration: event.duration || 0,
-                        detected_at: event.detected_at,
-                        timestamp: new Date(event.detected_at).toLocaleString(),
-                        location: event.location || 'Front Door',
-                        thumbnail_data: event.thumbnail_data,
-                        viewed: event.viewed || false,
-                        starred: event.starred || false,
-                    }))
-                );
-            }
-        } catch (error) {
-            console.error('Error loading captures:', error);
-        }
-    }, [currentDevice?.id]);
-
-    const checkPi = useCallback(async (piUrl?: string) => {
+    // ✅ LIVE status from Pi server (/api/status), not Supabase
+    const loadSystemStatus = useCallback(async (piUrl?: string) => {
         const url = piUrl || currentDevice?.pi_url;
         if (!url) return;
-        const isConnected = await checkPiConnection(url);
-        setPiConnected(isConnected);
+
+        try {
+            // 1) connectivity
+            const isConnected = await checkPiConnection(url);
+            setPiConnected(isConnected);
+
+            if (!isConnected) {
+                setSystemStatus((prev) => ({ ...prev, connected: false }));
+                return;
+            }
+
+            // 2) live status
+            const s = await getPiStatus(url);
+            if (!s?.ok) return;
+
+            // Pi is source of truth for mode + lights
+            setMode((s.mode as OperationMode) || 'automatic');
+
+            setSystemStatus((prev) => ({
+                ...prev,
+                connected: true,
+                foyerLight: !!s.lights?.foyer,
+                porchLight: !!s.lights?.porch,
+
+                // These are not currently returned by the Pi server; keep last-known values:
+                // lastActivated: prev.lastActivated,
+                // battery: prev.battery,
+            }));
+        } catch (error) {
+            console.error('Error loading Pi system status:', error);
+        }
     }, [currentDevice?.pi_url]);
+
+    // ✅ Captures still come from Supabase
+    const loadCaptures = useCallback(
+        async (deviceId?: string) => {
+            const id = deviceId || currentDevice?.id;
+            if (!id) return;
+
+            try {
+                const { data, error } = await supabase
+                    .from('motion_events')
+                    .select('*')
+                    .eq('device_id', id)
+                    .order('detected_at', { ascending: false })
+                    .limit(20);
+
+                if (error) throw error;
+
+                if (data) {
+                    setCaptures(
+                        data.map((event) => ({
+                            id: event.id,
+                            file_name: event.file_name,
+                            file_path: event.file_path,
+                            file_size: event.file_size || 0,
+                            duration: event.duration || 0,
+                            detected_at: event.detected_at,
+                            timestamp: new Date(event.detected_at).toLocaleString(),
+                            location: event.location || 'Front Door',
+                            thumbnail_data: event.thumbnail_data,
+                            viewed: event.viewed || false,
+                            starred: event.starred || false,
+                        }))
+                    );
+                }
+            } catch (error) {
+                console.error('Error loading captures:', error);
+            }
+        },
+        [currentDevice?.id]
+    );
+
+    const checkPi = useCallback(
+        async (piUrl?: string) => {
+            const url = piUrl || currentDevice?.pi_url;
+            if (!url) return;
+            const isConnected = await checkPiConnection(url);
+            setPiConnected(isConnected);
+        },
+        [currentDevice?.pi_url]
+    );
 
     const loadDeviceAndData = useCallback(async () => {
         setLoading(true);
         const device = await loadDevice();
         if (device) {
             await Promise.all([
-                loadSystemStatus(device.id),
-                loadCaptures(device.id),
-                checkPi(device.pi_url),
+                loadSystemStatus(device.pi_url), // ✅ from Pi
+                loadCaptures(device.id),         // ✅ from Supabase
+                checkPi(device.pi_url),          // (optional, loadSystemStatus already checks too)
             ]);
         }
         setLoading(false);
@@ -259,28 +248,24 @@ export default function DashboardScreen() {
 
         // Only poll if we have a device and app is active
         if (isActive && currentDevice) {
-            // Poll for status updates every 5 seconds
+            // Poll for status updates every 2 seconds (Pi)
             statusIntervalRef.current = setInterval(() => {
                 loadSystemStatus();
-                checkPi();
-            }, 5000);
+            }, 2000);
 
-            // Poll for captures every 30 seconds
+            // Poll for captures every 30 seconds (Supabase)
             captureIntervalRef.current = setInterval(() => {
                 loadCaptures();
             }, 30000);
         }
 
         // Listen for app state changes
-        const subscription = AppState.addEventListener(
-            'change',
-            (state: AppStateStatus) => {
-                setIsActive(state === 'active');
-                if (state === 'active' && currentDevice) {
-                    loadDeviceAndData();
-                }
+        const subscription = AppState.addEventListener('change', (state: AppStateStatus) => {
+            setIsActive(state === 'active');
+            if (state === 'active' && currentDevice) {
+                loadDeviceAndData();
             }
-        );
+        });
 
         // Cleanup
         return () => {
@@ -292,7 +277,7 @@ export default function DashboardScreen() {
             }
             subscription.remove();
         };
-    }, [isActive, currentDevice, loadSystemStatus, loadCaptures, checkPi, loadDeviceAndData]);
+    }, [isActive, currentDevice, loadSystemStatus, loadCaptures, loadDeviceAndData]);
 
     // ─────────────────────────────────────────────────
     // EVENT HANDLERS
@@ -307,12 +292,8 @@ export default function DashboardScreen() {
             const ok = await sendModeChange(currentDevice.pi_url, newMode);
             if (!ok) throw new Error('Pi rejected mode change');
 
-            const { error } = await supabase
-                .from('status')
-                .update({ mode_of_operation: newMode })
-                .eq('device_id', currentDevice.id);
-
-            if (error) throw error;
+            // ✅ confirm from Pi (source of truth)
+            await loadSystemStatus(currentDevice.pi_url);
         } catch (err: any) {
             console.error(err);
             setMode(previousMode);
@@ -340,7 +321,11 @@ export default function DashboardScreen() {
                 ...prev,
                 [`${light}Light`]: previousValue,
             }));
+            return;
         }
+
+        // ✅ re-sync from Pi after toggle
+        await loadSystemStatus(currentDevice.pi_url);
     };
 
     const handleDownload = async (captureId: string) => {
@@ -355,10 +340,7 @@ export default function DashboardScreen() {
         try {
             const { status } = await MediaLibrary.requestPermissionsAsync();
             if (status !== 'granted') {
-                Alert.alert(
-                    'Permission Denied',
-                    'We need permission to save videos to your gallery.'
-                );
+                Alert.alert('Permission Denied', 'We need permission to save videos to your gallery.');
                 return;
             }
 
@@ -428,46 +410,35 @@ export default function DashboardScreen() {
     };
 
     const handleDelete = async (captureId: string) => {
-        Alert.alert(
-            'Delete Video',
-            'Are you sure you want to delete this video? This cannot be undone.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            const { error } = await supabase
-                                .from('motion_events')
-                                .delete()
-                                .eq('id', captureId);
+        Alert.alert('Delete Video', 'Are you sure you want to delete this video? This cannot be undone.', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: async () => {
+                    try {
+                        const { error } = await supabase.from('motion_events').delete().eq('id', captureId);
 
-                            if (error) {
-                                console.error('Error deleting capture:', error);
-                                Alert.alert('Error', 'Failed to delete video');
-                            } else {
-                                setCaptures((prev) => prev.filter((c) => c.id !== captureId));
-                                Alert.alert('Success', 'Video deleted successfully');
-                            }
-                        } catch (error) {
-                            console.error('Exception in delete:', error);
-                            Alert.alert('Error', 'An unexpected error occurred');
+                        if (error) {
+                            console.error('Error deleting capture:', error);
+                            Alert.alert('Error', 'Failed to delete video');
+                        } else {
+                            setCaptures((prev) => prev.filter((c) => c.id !== captureId));
+                            Alert.alert('Success', 'Video deleted successfully');
                         }
-                    },
+                    } catch (error) {
+                        console.error('Exception in delete:', error);
+                        Alert.alert('Error', 'An unexpected error occurred');
+                    }
                 },
-            ]
-        );
+            },
+        ]);
     };
 
     const handleSignOut = () => {
         Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
             { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Sign Out',
-                style: 'destructive',
-                onPress: () => signOut(),
-            },
+            { text: 'Sign Out', style: 'destructive', onPress: () => signOut() },
         ]);
     };
 
@@ -518,21 +489,13 @@ export default function DashboardScreen() {
             <SafeAreaView style={styles.container}>
                 <View style={styles.loadingContainer}>
                     <Text style={styles.noDeviceTitle}>No Device Connected</Text>
-                    <Text style={styles.noDeviceSubtitle}>
-                        Please set up your SOLARIS device to get started.
-                    </Text>
-                    <TouchableOpacity
-                        style={styles.setupButton}
-                        onPress={() => setShowSetupFlow(true)}
-                    >
+                    <Text style={styles.noDeviceSubtitle}>Please set up your SOLARIS device to get started.</Text>
+                    <TouchableOpacity style={styles.setupButton} onPress={() => setShowSetupFlow(true)}>
                         <Text style={styles.setupButtonText}>+ Setup Device</Text>
                     </TouchableOpacity>
 
                     {/* Logout Button */}
-                    <TouchableOpacity
-                        style={styles.logoutButton}
-                        onPress={handleSignOut}
-                    >
+                    <TouchableOpacity style={styles.logoutButton} onPress={handleSignOut}>
                         <Text style={styles.logoutButtonText}>Logout</Text>
                     </TouchableOpacity>
                 </View>
@@ -571,14 +534,9 @@ export default function DashboardScreen() {
                 <ScrollView
                     contentContainerStyle={styles.scrollContent}
                     showsVerticalScrollIndicator={false}
-                    refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-                    }
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
                 >
-                    <Header
-                        userName={session?.user?.email?.split('@')[0] || 'User'}
-                        onProfilePress={handleSignOut}
-                    />
+                    <Header userName={session?.user?.email?.split('@')[0] || 'User'} onProfilePress={handleSignOut} />
 
                     <View style={styles.piStatus}>
                         <View
